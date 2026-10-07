@@ -1,0 +1,43 @@
+# Python development artifacts
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Environment files (secrets — never bake into image)
+.env
+.env.*
+!.env.example
+
+# Development and test files
+# seed_data.py: dev-only DB seeder (creates admin user) — never in prod image
+# NOTE: scholar_scraper.py IS required at runtime by routers/scholar.py — do NOT exclude.
+seed_data.py
+tests/
+*.test.py
+*.spec.py
+
+# Documentation (reduces image size)
+*.md
+*.txt
+!requirements.txt
+
+# Git and IDE
+.git/
+.gitignore
+.gitconfig
+.vscode/
+.idea/
+
+# CI/CD
+.github/
+Jenkinsfile
+
+# Temporary files
+*.log
+*.tmp
+tmp/

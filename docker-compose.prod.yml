@@ -1,0 +1,108 @@
+# ============================================================
+# CSRG — Production Docker Compose
+# ============================================================
+# Usage:
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+#
+# Perbedaan dengan setup development:
+#   - TIDAK ADA source volume mounts (kode di-bake ke dalam image)
+#   - API docs (Swagger/ReDoc) dinonaktifkan
+#   - Port MongoDB (27017) & MinIO (9000 & 9001) TIDAK diekspos ke host
+#   - Objek media MinIO (/csrg-media/) dan API (/api/) di-proxy aman lewat Nginx
+#   - Cookie Secure flag aktif (membutuhkan HTTPS di reverse proxy)
+#   - Restart policy: always
+#
+# Prasyarat: file .env di root project berisi MONGO_ROOT_USERNAME,
+# MONGO_ROOT_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+# (lihat .env.example). File backend/.env & frontend/.env juga dibutuhkan.
+# ============================================================
+
+services:
+  mongo:
+    image: mongo:4.4
+    restart: always
+    command: mongod --auth
+    # Port 27017 TIDAK diekspos ke host — hanya jaringan internal Docker.
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?MONGO_ROOT_USERNAME is required}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?MONGO_ROOT_PASSWORD is required}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-csrg_database}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongo", "-u", "${MONGO_ROOT_USERNAME}", "-p", "${MONGO_ROOT_PASSWORD}", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  minio:
+    image: quay.io/minio/minio:latest
+    restart: always
+    command: server /data --console-address ":9001"
+    # Port MinIO (9000 S3 & 9001 Console) TIDAK diekspos ke host di production.
+    # Akses objek di-proxy aman melalui Nginx (/csrg-media/). Akses console via SSH tunnel bila perlu.
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  backend:
+    build: ./backend
+    restart: always
+    env_file:
+      - ./backend/.env
+    environment:
+      # Paksa setting production terlepas dari isi backend/.env
+      ENABLE_API_DOCS: "false"     # Swagger/ReDoc/OpenAPI mati di production (H5)
+      COOKIE_SECURE: "true"        # Cookie hanya via HTTPS (set reverse proxy TLS)
+    depends_on:
+      mongo:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    # Tanpa source volume mount — kode sudah di-copy saat build image.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys; sys.exit(0 if getattr(urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3), 'status', 0) == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  frontend:
+    build: ./frontend
+    restart: always
+    env_file:
+      - ./frontend/.env
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  mongo_data:
+  minio_data:

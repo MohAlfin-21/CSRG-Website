@@ -1,0 +1,27 @@
+# Development override — adds hot-reload volume mounts.
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# DO NOT use in production. This file exposes source code as volumes,
+# enables API docs, and opens MongoDB/MinIO ports for debugging.
+
+services:
+  mongo:
+    # Expose MongoDB port for local debugging tools (e.g. MongoDB Compass)
+    ports:
+      - "127.0.0.1:27017:27017"
+
+  minio:
+    # Expose MinIO Console for development debugging
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+  backend:
+    environment:
+      ENABLE_API_DOCS: "true"   # Enable Swagger UI in dev
+    volumes:
+      - ./backend:/app          # Hot-reload source code changes
+
+  frontend:
+    volumes:
+      - ./frontend:/app         # Hot-reload source code changes
